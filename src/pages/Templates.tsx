@@ -4,14 +4,11 @@ import { PageHeader } from "@/components/PageHeader";
 import { EmptyState } from "@/components/EmptyState";
 import { SendTemplateModal } from "@/components/SendTemplateModal";
 import {
-  Search, RefreshCw, FileText, Loader2, Plus, Send, MoreHorizontal,
-  Copy, Trash2,
+  Search, RefreshCw, FileText, Loader2, Plus, Send, MoreHorizontal, Copy, Trash2,
 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
@@ -49,20 +46,13 @@ function paramsCount(t: any): number {
   return 0;
 }
 
-function templateShortId(t: any): string {
-  return (t.meta?.id as string)?.slice(0, 8) || t.id?.slice(0, 8) || "—";
-}
-
-function waAccountShortId(t: any): string {
-  return t.wa_account_id?.slice(0, 14) || "—";
-}
-
 /* ───────── component ───────── */
 const TemplatesPage = () => {
   const { tenantId, loading: tenantLoading } = useTenant();
   const [templates, setTemplates] = useState<any[]>([]);
+  const [waAccounts, setWaAccounts] = useState<any[]>([]);
   const [waNumbers, setWaNumbers] = useState<any[]>([]);
-  const [selectedNumber, setSelectedNumber] = useState<string>("all");
+  const [accountFilter, setAccountFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
@@ -75,55 +65,50 @@ const TemplatesPage = () => {
     if (!tenantId) return;
     setLoading(true);
 
-    const [{ data: nums }, templateRes] = await Promise.all([
+    const [{ data: accounts }, { data: nums }, templateRes] = await Promise.all([
+      supabase.from("wa_accounts").select("id,label,waba_id").eq("tenant_id", tenantId),
       supabase.from("wa_numbers").select("id,phone_e164").eq("tenant_id", tenantId),
       (async () => {
-        let q = supabase.from("templates").select("*").eq("tenant_id", tenantId).order("status", { ascending: true }).order("name", { ascending: true });
+        let q = supabase.from("templates").select("*, wa_accounts(label)").eq("tenant_id", tenantId).order("status", { ascending: true }).order("name", { ascending: true });
         if (search) q = q.ilike("name", `%${search}%`);
         if (statusFilter !== "all") q = q.eq("status", statusFilter as any);
         if (categoryFilter !== "all") q = q.eq("category", categoryFilter as any);
-        return q.limit(200);
+        if (accountFilter !== "all") q = q.eq("wa_account_id", accountFilter);
+        return q.limit(500);
       })(),
     ]);
 
+    setWaAccounts(accounts || []);
     setWaNumbers(nums || []);
     setTemplates(templateRes.data || []);
     setLoading(false);
   };
 
-  useEffect(() => { fetchAll(); }, [tenantId, search, statusFilter, categoryFilter]);
+  useEffect(() => { fetchAll(); }, [tenantId, search, statusFilter, categoryFilter, accountFilter]);
 
-  const handleSync = async () => {
+  const handleSyncAll = async () => {
     if (!tenantId) return;
     setSyncing(true);
-    const { data: account } = await supabase
-      .from("wa_accounts").select("id").eq("tenant_id", tenantId).limit(1).maybeSingle();
-    if (!account) {
-      toast({ title: "خطأ", description: "لا يوجد حساب واتساب مربوط", variant: "destructive" });
-      setSyncing(false);
-      return;
-    }
-    const { error } = await supabase.functions.invoke("templates_sync", {
-      body: { tenant_id: tenantId, wa_account_id: account.id },
+    const { data, error } = await supabase.functions.invoke("meta_sync_all", {
+      body: { tenant_id: tenantId },
     });
     setSyncing(false);
     if (error) {
       toast({ title: "خطأ في المزامنة", description: error.message, variant: "destructive" });
     } else {
-      toast({ title: "تمت المزامنة بنجاح" });
+      toast({
+        title: "تمت المزامنة",
+        description: `${data.templates_synced} قالب من ${data.wabas_synced} حساب`,
+      });
       fetchAll();
     }
   };
 
-  const handleSend = (t: any) => {
-    setSendModal({ open: true, template: t });
-  };
-
+  const handleSend = (t: any) => setSendModal({ open: true, template: t });
   const handleCopy = (t: any) => {
     navigator.clipboard.writeText(t.name);
     toast({ title: "تم نسخ اسم القالب" });
   };
-
   const handleDelete = async (t: any) => {
     const { error } = await supabase.from("templates").delete().eq("id", t.id);
     if (error) {
@@ -137,59 +122,38 @@ const TemplatesPage = () => {
   if (tenantLoading || loading) {
     return (
       <DashboardLayout>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="w-8 h-8 animate-spin text-primary" />
-        </div>
+        <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div>
       </DashboardLayout>
     );
   }
 
   return (
     <DashboardLayout>
-      <PageHeader title="قوالب الرسائل" description="إدارة ومزامنة قوالب رسائل واتساب">
-        <Button variant="outline" className="gap-2" onClick={handleSync} disabled={syncing}>
-          <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
-          مزامنة
-        </Button>
-        <Button className="gap-2">
-          <Plus className="w-4 h-4" />
-          إنشاء قالب
+      <PageHeader title="قوالب الرسائل" description={`${templates.length} قالب عبر ${waAccounts.length} حساب`}>
+        <Button variant="outline" className="gap-2" onClick={handleSyncAll} disabled={syncing}>
+          <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />مزامنة الكل
         </Button>
       </PageHeader>
-
-      {/* Phone number selector */}
-      {waNumbers.length > 0 && (
-        <div className="mb-4">
-          <p className="text-xs text-muted-foreground mb-1.5">رقم الهاتف</p>
-          <Select value={selectedNumber} onValueChange={setSelectedNumber}>
-            <SelectTrigger className="w-72 bg-card border-border">
-              <SelectValue placeholder="اختر رقم الهاتف" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">جميع الأرقام</SelectItem>
-              {waNumbers.map((n) => (
-                <SelectItem key={n.id} value={n.id} dir="ltr">{n.phone_e164}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-      )}
 
       {/* Filters bar */}
       <div className="flex items-center gap-3 mb-5 flex-wrap">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-          <Input
-            placeholder="بحث في القوالب..."
-            className="pr-9 bg-card"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <Input placeholder="بحث في القوالب..." className="pr-9 bg-card" value={search} onChange={(e) => setSearch(e.target.value)} />
         </div>
+        {waAccounts.length > 1 && (
+          <Select value={accountFilter} onValueChange={setAccountFilter}>
+            <SelectTrigger className="w-48 bg-card"><SelectValue placeholder="كل الحسابات" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">كل الحسابات</SelectItem>
+              {waAccounts.map((a) => (
+                <SelectItem key={a.id} value={a.id}>{a.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
         <Select value={statusFilter} onValueChange={setStatusFilter}>
-          <SelectTrigger className="w-40 bg-card">
-            <SelectValue placeholder="كل الحالات" />
-          </SelectTrigger>
+          <SelectTrigger className="w-40 bg-card"><SelectValue placeholder="كل الحالات" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">كل الحالات</SelectItem>
             <SelectItem value="APPROVED">موافق عليه</SelectItem>
@@ -199,9 +163,7 @@ const TemplatesPage = () => {
           </SelectContent>
         </Select>
         <Select value={categoryFilter} onValueChange={setCategoryFilter}>
-          <SelectTrigger className="w-40 bg-card">
-            <SelectValue placeholder="كل الفئات" />
-          </SelectTrigger>
+          <SelectTrigger className="w-40 bg-card"><SelectValue placeholder="كل الفئات" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">كل الفئات</SelectItem>
             <SelectItem value="UTILITY">خدمي</SelectItem>
@@ -215,11 +177,7 @@ const TemplatesPage = () => {
       {/* Table */}
       {templates.length === 0 ? (
         <div className="bg-card rounded-xl border border-border p-8">
-          <EmptyState
-            icon={FileText}
-            title="لا توجد قوالب"
-            description="اضغط مزامنة لجلب القوالب من واتساب أو أنشئ قالباً جديداً"
-          />
+          <EmptyState icon={FileText} title="لا توجد قوالب" description="اضغط «مزامنة الكل» لجلب القوالب من جميع حسابات واتساب" />
         </div>
       ) : (
         <div className="bg-card rounded-xl border border-border overflow-hidden animate-fade-in">
@@ -227,6 +185,7 @@ const TemplatesPage = () => {
             <thead>
               <tr className="border-b border-border bg-muted/30">
                 <th className="text-right text-xs font-medium text-muted-foreground px-5 py-3">الاسم</th>
+                <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">الحساب</th>
                 <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">الحالة</th>
                 <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">الفئة</th>
                 <th className="text-right text-xs font-medium text-muted-foreground px-4 py-3">اللغة</th>
@@ -237,93 +196,40 @@ const TemplatesPage = () => {
             <tbody>
               {templates.map((t) => {
                 const params = paramsCount(t);
-                const shortId = templateShortId(t);
-                const accShortId = waAccountShortId(t);
+                const accLabel = (t.wa_accounts as any)?.label || "—";
                 return (
-                  <tr
-                    key={t.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors group"
-                  >
-                    {/* Name + meta */}
+                  <tr key={t.id} className="border-b border-border last:border-0 hover:bg-muted/40 transition-colors group">
                     <td className="px-5 py-3">
-                      <span className="block text-sm font-semibold text-foreground font-mono" dir="ltr">
-                        {t.name}
-                      </span>
+                      <span className="block text-sm font-semibold text-foreground font-mono" dir="ltr">{t.name}</span>
                       <div className="flex items-center gap-2 mt-0.5" dir="ltr">
-                        {params > 0 && (
-                          <span className="text-xs text-muted-foreground">{params} params</span>
-                        )}
+                        {params > 0 && <span className="text-xs text-muted-foreground">{params} params</span>}
                         {params > 0 && <span className="text-muted-foreground/40 text-xs">·</span>}
-                        <span className="text-xs text-muted-foreground font-mono">{shortId}</span>
-                        <span className="text-muted-foreground/40 text-xs">·</span>
-                        <span className="text-xs text-muted-foreground font-mono">{accShortId}</span>
+                        <span className="text-xs text-muted-foreground font-mono">{(t.meta?.id as string)?.slice(0, 10) || t.id?.slice(0, 8)}</span>
                       </div>
                     </td>
-
-                    {/* Status */}
-                    <td className="px-4 py-3">
-                      <StatusPill status={t.status} />
-                    </td>
-
-                    {/* Category */}
-                    <td className="px-4 py-3 text-sm text-foreground">
-                      {categoryLabel[t.category] || t.category}
-                    </td>
-
-                    {/* Language */}
-                    <td className="px-4 py-3 text-sm text-muted-foreground" dir="ltr">
-                      {t.language}
-                    </td>
-
-                    {/* Preview */}
+                    <td className="px-4 py-3 text-sm text-muted-foreground">{accLabel}</td>
+                    <td className="px-4 py-3"><StatusPill status={t.status} /></td>
+                    <td className="px-4 py-3 text-sm text-foreground">{categoryLabel[t.category] || t.category}</td>
+                    <td className="px-4 py-3 text-sm text-muted-foreground" dir="ltr">{t.language}</td>
                     <td className="px-4 py-3 text-sm text-muted-foreground max-w-xs">
-                      <span className="line-clamp-1" dir={t.language?.startsWith("ar") ? "rtl" : "ltr"}>
-                        {t.body || "—"}
-                      </span>
+                      <span className="line-clamp-1" dir={t.language?.startsWith("ar") ? "rtl" : "ltr"}>{t.body || "—"}</span>
                     </td>
-
-                    {/* Actions */}
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1 justify-end">
-                        {/* Send button */}
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10"
-                          title="إرسال القالب"
-                          onClick={() => handleSend(t)}
-                        >
+                        <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-primary/10" title="إرسال القالب" onClick={() => handleSend(t)}>
                           <Send className="w-4 h-4" />
                         </Button>
-
-                        {/* Three-dot menu */}
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                            >
+                            <Button variant="ghost" size="icon" className="h-8 w-8 text-muted-foreground hover:text-foreground">
                               <MoreHorizontal className="w-4 h-4" />
                             </Button>
                           </DropdownMenuTrigger>
                           <DropdownMenuContent align="end" className="w-44">
-                            <DropdownMenuItem onClick={() => handleSend(t)} className="gap-2">
-                              <Send className="w-3.5 h-3.5" />
-                              إرسال
-                            </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleCopy(t)} className="gap-2">
-                              <Copy className="w-3.5 h-3.5" />
-                              نسخ الاسم
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleSend(t)} className="gap-2"><Send className="w-3.5 h-3.5" />إرسال</DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleCopy(t)} className="gap-2"><Copy className="w-3.5 h-3.5" />نسخ الاسم</DropdownMenuItem>
                             <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => handleDelete(t)}
-                              className="gap-2 text-destructive focus:text-destructive"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                              حذف
-                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleDelete(t)} className="gap-2 text-destructive focus:text-destructive"><Trash2 className="w-3.5 h-3.5" />حذف</DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </div>
@@ -336,7 +242,6 @@ const TemplatesPage = () => {
         </div>
       )}
 
-      {/* Send Template Modal */}
       {tenantId && (
         <SendTemplateModal
           open={sendModal.open}

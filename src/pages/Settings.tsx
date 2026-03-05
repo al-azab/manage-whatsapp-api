@@ -5,19 +5,13 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Loader2, Plus, Link2, CheckCircle2 } from "lucide-react";
+import { Loader2, Plus, Link2, CheckCircle2, RefreshCw, Building2, Phone } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenant } from "@/hooks/use-tenant";
 import { useAuth } from "@/contexts/AuthContext";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-  DialogClose,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, DialogFooter, DialogClose,
 } from "@/components/ui/dialog";
 
 const SettingsPage = () => {
@@ -25,8 +19,9 @@ const SettingsPage = () => {
   const { user } = useAuth();
   const [name, setName] = useState("");
   const [saving, setSaving] = useState(false);
-  const [waAccount, setWaAccount] = useState<any>(null);
+  const [waAccounts, setWaAccounts] = useState<any[]>([]);
   const [loadingWa, setLoadingWa] = useState(true);
+  const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
 
   // Link WA account form
@@ -35,26 +30,21 @@ const SettingsPage = () => {
   const [linking, setLinking] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  useEffect(() => {
-    setName(tenantName || "");
-  }, [tenantName]);
+  useEffect(() => { setName(tenantName || ""); }, [tenantName]);
 
-  const fetchWaAccount = async () => {
+  const fetchWaAccounts = async () => {
     if (!tenantId) return;
     setLoadingWa(true);
     const { data } = await supabase
       .from("wa_accounts")
       .select("*")
       .eq("tenant_id", tenantId)
-      .limit(1)
-      .maybeSingle();
-    setWaAccount(data);
+      .order("created_at", { ascending: true });
+    setWaAccounts(data || []);
     setLoadingWa(false);
   };
 
-  useEffect(() => {
-    fetchWaAccount();
-  }, [tenantId]);
+  useEffect(() => { fetchWaAccounts(); }, [tenantId]);
 
   const handleSave = async () => {
     if (!tenantId) return;
@@ -80,7 +70,25 @@ const SettingsPage = () => {
       setDialogOpen(false);
       setWaLabel("");
       setWabaId("");
-      fetchWaAccount();
+      fetchWaAccounts();
+    }
+  };
+
+  const handleSyncAll = async () => {
+    if (!tenantId) return;
+    setSyncing(true);
+    const { data, error } = await supabase.functions.invoke("meta_sync_all", {
+      body: { tenant_id: tenantId },
+    });
+    setSyncing(false);
+    if (error) {
+      toast({ title: "خطأ في المزامنة", description: error.message, variant: "destructive" });
+    } else {
+      toast({
+        title: "تمت المزامنة بنجاح",
+        description: `${data.wabas_synced} حساب · ${data.numbers_synced} رقم · ${data.templates_synced} قالب`,
+      });
+      fetchWaAccounts();
     }
   };
 
@@ -99,7 +107,7 @@ const SettingsPage = () => {
       <Tabs defaultValue="general" className="animate-fade-in">
         <TabsList className="mb-6">
           <TabsTrigger value="general">عام</TabsTrigger>
-          <TabsTrigger value="account">حساب واتساب</TabsTrigger>
+          <TabsTrigger value="accounts">حسابات واتساب ({waAccounts.length})</TabsTrigger>
           <TabsTrigger value="api">API</TabsTrigger>
         </TabsList>
 
@@ -123,92 +131,82 @@ const SettingsPage = () => {
           </div>
         </TabsContent>
 
-        <TabsContent value="account">
-          <div className="bg-card rounded-xl border border-border p-6 space-y-6 max-w-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-lg font-semibold">حساب واتساب للأعمال</h3>
-              {!waAccount && !loadingWa && (
-                <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-                  <DialogTrigger asChild>
-                    <Button>
-                      <Link2 className="w-4 h-4 ml-2" />
-                      ربط حساب واتساب
-                    </Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>ربط حساب واتساب للأعمال</DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                      <div>
-                        <Label className="text-sm font-medium">اسم الحساب</Label>
-                        <Input
-                          className="mt-1.5"
-                          placeholder="مثال: حساب الشركة الرئيسي"
-                          value={waLabel}
-                          onChange={(e) => setWaLabel(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <Label className="text-sm font-medium">معرف حساب الأعمال (WABA ID)</Label>
-                        <Input
-                          className="mt-1.5"
-                          placeholder="مثال: 123456789012345"
-                          dir="ltr"
-                          value={wabaId}
-                          onChange={(e) => setWabaId(e.target.value)}
-                        />
-                        <p className="text-xs text-muted-foreground mt-1">
-                          تجده في لوحة تحكم Meta Business → WhatsApp → إعدادات الحساب
-                        </p>
-                      </div>
+        <TabsContent value="accounts">
+          <div className="space-y-6 max-w-3xl">
+            {/* Header with actions */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <Button variant="outline" className="gap-2" onClick={handleSyncAll} disabled={syncing}>
+                <RefreshCw className={`w-4 h-4 ${syncing ? "animate-spin" : ""}`} />
+                مزامنة من Meta
+              </Button>
+              <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogTrigger asChild>
+                  <Button className="gap-2">
+                    <Plus className="w-4 h-4" />
+                    ربط حساب يدوياً
+                  </Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>ربط حساب واتساب للأعمال</DialogTitle>
+                  </DialogHeader>
+                  <div className="space-y-4 py-4">
+                    <div>
+                      <Label className="text-sm font-medium">اسم الحساب</Label>
+                      <Input className="mt-1.5" placeholder="مثال: حساب الشركة الرئيسي" value={waLabel} onChange={(e) => setWaLabel(e.target.value)} />
                     </div>
-                    <DialogFooter>
-                      <DialogClose asChild>
-                        <Button variant="outline">إلغاء</Button>
-                      </DialogClose>
-                      <Button onClick={handleLinkWaAccount} disabled={linking || !wabaId.trim() || !waLabel.trim()}>
-                        {linking && <Loader2 className="w-4 h-4 animate-spin ml-2" />}
-                        ربط الحساب
-                      </Button>
-                    </DialogFooter>
-                  </DialogContent>
-                </Dialog>
-              )}
+                    <div>
+                      <Label className="text-sm font-medium">معرف حساب الأعمال (WABA ID)</Label>
+                      <Input className="mt-1.5" placeholder="مثال: 123456789012345" dir="ltr" value={wabaId} onChange={(e) => setWabaId(e.target.value)} />
+                    </div>
+                  </div>
+                  <DialogFooter>
+                    <DialogClose asChild><Button variant="outline">إلغاء</Button></DialogClose>
+                    <Button onClick={handleLinkWaAccount} disabled={linking || !wabaId.trim() || !waLabel.trim()}>
+                      {linking && <Loader2 className="w-4 h-4 animate-spin ml-2" />}ربط الحساب
+                    </Button>
+                  </DialogFooter>
+                </DialogContent>
+              </Dialog>
+              <span className="text-xs text-muted-foreground mr-auto">
+                {syncing ? "جارٍ مزامنة كل الحسابات والأرقام والقوالب..." : `${waAccounts.length} حساب مربوط`}
+              </span>
             </div>
 
+            {/* Accounts list */}
             {loadingWa ? (
               <div className="flex justify-center py-8"><Loader2 className="w-6 h-6 animate-spin text-primary" /></div>
-            ) : waAccount ? (
-              <div className="rounded-lg border border-border p-4 space-y-3">
-                <div className="flex items-center gap-2">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-500" />
-                  <span className="font-medium">الحساب مربوط</span>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <Label className="text-xs text-muted-foreground">اسم الحساب</Label>
-                    <p className="text-sm font-medium mt-0.5">{waAccount.label}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">WABA ID</Label>
-                    <p className="text-sm font-mono mt-0.5" dir="ltr">{waAccount.waba_id}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">معرف الحساب</Label>
-                    <p className="text-sm font-mono mt-0.5" dir="ltr">{waAccount.id}</p>
-                  </div>
-                  <div>
-                    <Label className="text-xs text-muted-foreground">تاريخ الربط</Label>
-                    <p className="text-sm mt-0.5">{new Date(waAccount.created_at).toLocaleDateString("ar")}</p>
-                  </div>
-                </div>
+            ) : waAccounts.length === 0 ? (
+              <div className="bg-card rounded-xl border border-border p-8 text-center">
+                <Building2 className="w-12 h-12 mx-auto mb-3 opacity-30 text-muted-foreground" />
+                <p className="font-medium">لم يتم ربط أي حساب واتساب بعد</p>
+                <p className="text-sm text-muted-foreground mt-1">اضغط «مزامنة من Meta» لسحب جميع الحسابات تلقائياً</p>
               </div>
             ) : (
-              <div className="text-center py-8 text-muted-foreground">
-                <Link2 className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p className="font-medium">لم يتم ربط حساب واتساب بعد</p>
-                <p className="text-sm mt-1">اربط حسابك من زر "ربط حساب واتساب" أعلاه</p>
+              <div className="space-y-3">
+                {waAccounts.map((acc) => (
+                  <div key={acc.id} className="bg-card rounded-xl border border-border p-5">
+                    <div className="flex items-center gap-3 mb-3">
+                      <div className="w-10 h-10 rounded-lg bg-[hsl(var(--chart-2)/0.1)] flex items-center justify-center">
+                        <CheckCircle2 className="w-5 h-5 text-[hsl(var(--chart-2))]" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm">{acc.label}</p>
+                        <p className="text-xs text-muted-foreground font-mono" dir="ltr">WABA: {acc.waba_id}</p>
+                      </div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <Label className="text-xs text-muted-foreground">معرف الحساب الداخلي</Label>
+                        <p className="text-xs font-mono mt-0.5" dir="ltr">{acc.id}</p>
+                      </div>
+                      <div>
+                        <Label className="text-xs text-muted-foreground">تاريخ الربط</Label>
+                        <p className="text-xs mt-0.5">{new Date(acc.created_at).toLocaleDateString("ar")}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
               </div>
             )}
           </div>
@@ -221,8 +219,12 @@ const SettingsPage = () => {
               <Input className="mt-1.5" defaultValue="v24.0" dir="ltr" readOnly />
             </div>
             <div>
-              <Label className="text-sm font-medium">معرف حساب الأعمال</Label>
-              <Input className="mt-1.5" value={waAccount?.waba_id || "غير مربوط"} dir="ltr" readOnly />
+              <Label className="text-sm font-medium">Business ID</Label>
+              <Input className="mt-1.5" defaultValue="314437023701205" dir="ltr" readOnly />
+            </div>
+            <div>
+              <Label className="text-sm font-medium">عدد الحسابات المربوطة</Label>
+              <Input className="mt-1.5" value={`${waAccounts.length} حساب`} readOnly />
             </div>
           </div>
         </TabsContent>
