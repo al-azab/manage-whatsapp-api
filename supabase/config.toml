@@ -35,3 +35,6 @@ verify_jwt = false
 
 [functions.diagnose_number]
 verify_jwt = false
+
+[functions.meta_sync_all]
+verify_jwt = false
