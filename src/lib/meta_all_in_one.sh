@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # ========= ثوابت =========
-META_TOKEN="EAAMo2xRQsWkBQwROURRfp1SoHCQElZBjiokvMytDyHG7oXoKnGikbO4dJm7w8PZCw0Wdl5XVzxZBT29ihoNY98x9iMyicAGqaDJcTHm2QHOzBXIOFXYuZBovVsglfqEaJ3u38txodDLxZA6se3edaX53siUWyYKj26yd6ZBicN7pK742kOApJGmghH863hHWmTtgZDZD"
+META_TOKEN="EAAMoxxxxxxxxxxxxxxTtgZDZD"
 BUSINESS_ID="314437023701205"
 API="https://graph.facebook.com/v24.0"
 OUT="meta_all.json"
