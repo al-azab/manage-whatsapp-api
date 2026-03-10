@@ -136,18 +136,29 @@ const DiagnosticsPage = () => {
             body: { tenant_id: tenantId, phone_number_id: n.phone_number_id },
           });
 
-          if (fnErr || result?.error) {
+          if (fnErr) {
             updateNumber(i, {
               status: "error",
-              detail: fnErr?.message || result?.error || "فشل الاختبار",
+              detail: fnErr.message || "فشل الاتصال بالوظيفة",
+              apiResponse: result,
+            });
+          } else if (result?.success === false) {
+            updateNumber(i, {
+              status: "warn",
+              detail: result?.error || "خطأ من Meta API",
+              apiResponse: result,
+            });
+          } else if (result?.success === true) {
+            const apiData = result?.data;
+            updateNumber(i, {
+              status: "ok",
+              detail: `✓ ${apiData?.verified_name || ""} — ${apiData?.display_phone_number || n.phone_e164}`,
               apiResponse: result,
             });
           } else {
-            const apiData = result?.data || result;
-            const verified = apiData?.verified_name || apiData?.display_phone_number;
             updateNumber(i, {
-              status: "ok",
-              detail: verified ? `✓ ${apiData.verified_name} — ${apiData.display_phone_number}` : "اتصال ناجح",
+              status: "warn",
+              detail: "استجابة غير متوقعة",
               apiResponse: result,
             });
           }
