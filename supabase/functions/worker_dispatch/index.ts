@@ -223,18 +223,23 @@ async function processMedia(supabase: any, job: any) {
       const now = new Date();
       const folderPath = `/whatsapp/${tenant_id.substring(0, 8)}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
-      // Create directory
-      await fetch(
-        `${seafileUrl}/api2/repos/${seafileRepoId}/dir/?p=${encodeURIComponent(folderPath)}`,
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Token ${seafileToken}`,
-            "Content-Type": "application/x-www-form-urlencoded",
-          },
-          body: "operation=mkdir",
-        }
-      );
+      // Create directories recursively
+      const parts = folderPath.split("/").filter(Boolean);
+      let currentPath = "";
+      for (const part of parts) {
+        currentPath += `/${part}`;
+        await fetch(
+          `${seafileUrl}/api2/repos/${seafileRepoId}/dir/?p=${encodeURIComponent(currentPath)}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${seafileToken}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: "operation=mkdir",
+          }
+        );
+      }
 
       // Get upload link
       const uploadLinkRes = await fetch(
