@@ -165,7 +165,7 @@ async function processWebhookDelivery(supabase: any, job: any) {
 }
 
 async function processMedia(supabase: any, job: any) {
-  const { media_id, tenant_id, message_id } = job.payload;
+  const { media_id, tenant_id, message_id, mime_type } = job.payload;
   const waAccessToken = Deno.env.get("WA_ACCESS_TOKEN")!;
   const apiVersion = Deno.env.get("WA_API_VERSION") || "v24.0";
 
@@ -212,6 +212,67 @@ async function processMedia(supabase: any, job: any) {
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
 
+  // Upload to Seafile as well
+  const seafileUrl = Deno.env.get("SEAFILE_URL");
+  const seafileToken = Deno.env.get("SEAFILE_TOKEN");
+  const seafileRepoId = Deno.env.get("SEAFILE_REPO_ID");
+  let seafilePath = "";
+
+  if (seafileUrl && seafileToken && seafileRepoId) {
+    try {
+      const now = new Date();
+      const folderPath = `/whatsapp/${tenant_id.substring(0, 8)}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+      // Create directories recursively
+      const parts = folderPath.split("/").filter(Boolean);
+      let currentPath = "";
+      for (const part of parts) {
+        currentPath += `/${part}`;
+        await fetch(
+          `${seafileUrl}/api2/repos/${seafileRepoId}/dir/?p=${encodeURIComponent(currentPath)}`,
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Token ${seafileToken}`,
+              "Content-Type": "application/x-www-form-urlencoded",
+            },
+            body: "operation=mkdir",
+          }
+        );
+      }
+
+      // Get upload link with matching parent_dir
+      const uploadLinkRes = await fetch(
+        `${seafileUrl}/api2/repos/${seafileRepoId}/upload-link/?p=${encodeURIComponent(folderPath)}`,
+        { headers: { Authorization: `Token ${seafileToken}` } }
+      );
+
+      if (uploadLinkRes.ok) {
+        const uploadUrl = (await uploadLinkRes.text()).replace(/"/g, "");
+        const fileName = `${media_id.substring(0, 10)}_${Date.now()}.${ext}`;
+        const formData = new FormData();
+        formData.append("file", new Blob([mediaBytes], { type: mediaInfo.mime_type || "application/octet-stream" }), fileName);
+        formData.append("parent_dir", folderPath);
+        formData.append("replace", "1");
+
+        const uploadRes = await fetch(uploadUrl, {
+          method: "POST",
+          headers: { Authorization: `Token ${seafileToken}` },
+          body: formData,
+        });
+
+        if (uploadRes.ok) {
+          seafilePath = `${folderPath}/${fileName}`;
+          console.log(`Seafile upload success: ${seafilePath}`);
+        } else {
+          console.error("Seafile upload failed:", await uploadRes.text());
+        }
+      }
+    } catch (sfErr) {
+      console.error("Seafile upload error:", sfErr);
+    }
+  }
+
   // Update media_files record
   const { data: existingMedia } = await supabase
     .from("media_files")
@@ -225,7 +286,8 @@ async function processMedia(supabase: any, job: any) {
     await supabase
       .from("media_files")
       .update({
-        storage_key: storageKey,
+        storage_key: seafilePath || storageKey,
+        storage_bucket: seafilePath ? "seafile" : "wa-media",
         mime: mediaInfo.mime_type,
         size_bytes: mediaBytes.length,
         sha256,

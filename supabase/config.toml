@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.meta_sync_all]
 verify_jwt = false
+
+[functions.seafile_upload]
+verify_jwt = false

@@ -14,6 +14,79 @@ export type Database = {
   }
   public: {
     Tables: {
+      ai_extractions: {
+        Row: {
+          confidence: number | null
+          created_at: string
+          entities: Json
+          error_message: string | null
+          extracted_fields: Json
+          id: string
+          media_file_id: string | null
+          message_id: string | null
+          model_used: string | null
+          processed_at: string | null
+          raw_text: string | null
+          status: string
+          summary: string | null
+          tenant_id: string
+        }
+        Insert: {
+          confidence?: number | null
+          created_at?: string
+          entities?: Json
+          error_message?: string | null
+          extracted_fields?: Json
+          id?: string
+          media_file_id?: string | null
+          message_id?: string | null
+          model_used?: string | null
+          processed_at?: string | null
+          raw_text?: string | null
+          status?: string
+          summary?: string | null
+          tenant_id: string
+        }
+        Update: {
+          confidence?: number | null
+          created_at?: string
+          entities?: Json
+          error_message?: string | null
+          extracted_fields?: Json
+          id?: string
+          media_file_id?: string | null
+          message_id?: string | null
+          model_used?: string | null
+          processed_at?: string | null
+          raw_text?: string | null
+          status?: string
+          summary?: string | null
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "ai_extractions_media_file_id_fkey"
+            columns: ["media_file_id"]
+            isOneToOne: false
+            referencedRelation: "media_files"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_extractions_message_id_fkey"
+            columns: ["message_id"]
+            isOneToOne: false
+            referencedRelation: "messages"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "ai_extractions_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       api_keys: {
         Row: {
           created_at: string
@@ -851,6 +924,7 @@ export type Database = {
         | "MEDIA_PROCESS"
         | "WORKFLOW_RUN"
         | "SEND_MESSAGE"
+        | "MEDIA_AI_ANALYZE"
       media_kind: "image" | "video" | "audio" | "document" | "sticker" | "other"
       member_role: "admin" | "operator" | "viewer"
       msg_direction: "inbound" | "outbound"
@@ -992,6 +1066,7 @@ export const Constants = {
         "MEDIA_PROCESS",
         "WORKFLOW_RUN",
         "SEND_MESSAGE",
+        "MEDIA_AI_ANALYZE",
       ],
       media_kind: ["image", "video", "audio", "document", "sticker", "other"],
       member_role: ["admin", "operator", "viewer"],
