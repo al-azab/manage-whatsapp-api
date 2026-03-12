@@ -241,9 +241,9 @@ async function processMedia(supabase: any, job: any) {
         );
       }
 
-      // Get upload link
+      // Get upload link with matching parent_dir
       const uploadLinkRes = await fetch(
-        `${seafileUrl}/api2/repos/${seafileRepoId}/upload-link/`,
+        `${seafileUrl}/api2/repos/${seafileRepoId}/upload-link/?p=${encodeURIComponent(folderPath)}`,
         { headers: { Authorization: `Token ${seafileToken}` } }
       );
 
