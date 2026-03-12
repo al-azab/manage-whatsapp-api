@@ -8,6 +8,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { supabase } from "@/integrations/supabase/client";
 import { useTenant } from "@/hooks/use-tenant";
 import { useToast } from "@/hooks/use-toast";
+import { FileAttachmentButton } from "@/components/inbox/FileAttachmentButton";
+import { ChatMediaBubble } from "@/components/inbox/ChatMediaBubble";
 import {
   Dialog,
   DialogContent,
