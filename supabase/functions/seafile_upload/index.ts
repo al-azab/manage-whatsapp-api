@@ -87,21 +87,7 @@ Deno.serve(async (req) => {
       return json({ error: "media_id or file_url is required" }, 400);
     }
 
-    // Step 2: Get Seafile upload link
-    const uploadLinkRes = await fetch(
-      `${seafileUrl}/api2/repos/${seafileRepoId}/upload-link/`,
-      { headers: { Authorization: `Token ${seafileToken}` } }
-    );
-
-    if (!uploadLinkRes.ok) {
-      const errText = await uploadLinkRes.text();
-      return json({ error: "Failed to get Seafile upload link", details: errText }, 502);
-    }
-
-    const uploadUrl = (await uploadLinkRes.text()).replace(/"/g, "");
-
-    // Step 3: Upload to Seafile
-    // Organize by tenant/year-month
+    // Step 2: Organize by tenant/year-month
     const now = new Date();
     const folderPath = `/whatsapp/${tenant_id.substring(0, 8)}/${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
@@ -122,6 +108,19 @@ Deno.serve(async (req) => {
         }
       );
     }
+
+    // Step 3: Get upload link with matching parent_dir (p parameter)
+    const uploadLinkRes = await fetch(
+      `${seafileUrl}/api2/repos/${seafileRepoId}/upload-link/?p=${encodeURIComponent(folderPath)}`,
+      { headers: { Authorization: `Token ${seafileToken}` } }
+    );
+
+    if (!uploadLinkRes.ok) {
+      const errText = await uploadLinkRes.text();
+      return json({ error: "Failed to get Seafile upload link", details: errText }, 502);
+    }
+
+    const uploadUrl = (await uploadLinkRes.text()).replace(/"/g, "");
 
     // Upload the file
     const formData = new FormData();
