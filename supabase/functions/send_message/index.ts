@@ -13,6 +13,13 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function mimeToWaType(mime: string): string {
+  if (mime.startsWith("image/")) return "image";
+  if (mime.startsWith("video/")) return "video";
+  if (mime.startsWith("audio/")) return "audio";
+  return "document";
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -31,7 +38,7 @@ Deno.serve(async (req) => {
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { tenant_id, conversation_id, text, template, media_id } = body;
+    const { tenant_id, conversation_id, text, template, media_url, media_mime, media_filename, caption } = body;
 
     if (!tenant_id || !conversation_id) {
       return json({ error: "tenant_id and conversation_id are required" }, 400);
@@ -70,14 +77,27 @@ Deno.serve(async (req) => {
       to: recipientPhone,
     };
 
+    let messageText = text || null;
+
     if (template) {
       waPayload.type = "template";
       waPayload.template = template;
+    } else if (media_url && media_mime) {
+      // Media message
+      const waType = mimeToWaType(media_mime);
+      waPayload.type = waType;
+
+      const mediaObj: Record<string, string> = { link: media_url };
+      if (caption) mediaObj.caption = caption;
+      if (waType === "document" && media_filename) mediaObj.filename = media_filename;
+
+      waPayload[waType] = mediaObj;
+      messageText = caption || `[${waType}]`;
     } else if (text) {
       waPayload.type = "text";
       waPayload.text = { body: text };
     } else {
-      return json({ error: "text or template is required" }, 400);
+      return json({ error: "text, template, or media_url is required" }, 400);
     }
 
     // Send via WhatsApp Cloud API
@@ -102,6 +122,18 @@ Deno.serve(async (req) => {
 
     const providerMessageId = waResult.messages?.[0]?.id;
 
+    // Build meta
+    const meta: Record<string, unknown> = {};
+    if (template) meta.template = template;
+    if (media_url) {
+      meta.media = {
+        url: media_url,
+        mime: media_mime,
+        filename: media_filename || null,
+        type: media_mime ? mimeToWaType(media_mime) : null,
+      };
+    }
+
     // Insert outbound message
     const { data: message, error: msgErr } = await serviceClient
       .from("messages")
@@ -110,9 +142,9 @@ Deno.serve(async (req) => {
         conversation_id,
         direction: "outbound",
         status: "sent",
-        text: text || null,
+        text: messageText,
         provider_message_id: providerMessageId,
-        meta: template ? { template } : {},
+        meta,
       })
       .select("id")
       .single();
@@ -129,7 +161,7 @@ Deno.serve(async (req) => {
       action: "SEND_MESSAGE",
       entity: "messages",
       entity_id: message?.id,
-      meta: { conversation_id, direction: "outbound" },
+      meta: { conversation_id, direction: "outbound", has_media: !!media_url },
     });
 
     return json({ success: true, message_id: message?.id, provider_message_id: providerMessageId });
