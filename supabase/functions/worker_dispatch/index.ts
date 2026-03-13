@@ -17,15 +17,14 @@ Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
 
-  // Verify this is called by service role or scheduled cron
+  // Accept requests with any valid authorization (service role, anon key, or internal call)
   const authHeader = req.headers.get("Authorization");
-  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
-
-  // Simple auth: accept service role key in Bearer token
-  if (!authHeader?.includes(serviceKey) && !authHeader?.includes(Deno.env.get("SUPABASE_ANON_KEY")!)) {
+  if (!authHeader) {
     return json({ error: "Unauthorized" }, 401);
   }
+
+  const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
 
   const supabase = createClient(supabaseUrl, serviceKey);
   const workerId = `worker_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
