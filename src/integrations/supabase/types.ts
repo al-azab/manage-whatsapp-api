@@ -175,31 +175,193 @@ export type Database = {
           },
         ]
       }
+      broadcast: {
+        Row: {
+          contact_tags: string[] | null
+          created_at: string
+          delivered_count: number
+          failed_count: number
+          id: string
+          language: string
+          name: string
+          processed_count: number
+          read_count: number
+          replied_count: number
+          scheduled_count: number | null
+          sent_count: number
+          template_name: string
+        }
+        Insert: {
+          contact_tags?: string[] | null
+          created_at?: string
+          delivered_count?: number
+          failed_count?: number
+          id?: string
+          language: string
+          name: string
+          processed_count?: number
+          read_count?: number
+          replied_count?: number
+          scheduled_count?: number | null
+          sent_count?: number
+          template_name: string
+        }
+        Update: {
+          contact_tags?: string[] | null
+          created_at?: string
+          delivered_count?: number
+          failed_count?: number
+          id?: string
+          language?: string
+          name?: string
+          processed_count?: number
+          read_count?: number
+          replied_count?: number
+          scheduled_count?: number | null
+          sent_count?: number
+          template_name?: string
+        }
+        Relationships: []
+      }
+      broadcast_batch: {
+        Row: {
+          broadcast_id: string
+          created_at: string
+          ended_at: string | null
+          id: string
+          scheduled_count: number
+          sent_count: number
+          started_at: string | null
+          status: string | null
+        }
+        Insert: {
+          broadcast_id: string
+          created_at?: string
+          ended_at?: string | null
+          id: string
+          scheduled_count: number
+          sent_count?: number
+          started_at?: string | null
+          status?: string | null
+        }
+        Update: {
+          broadcast_id?: string
+          created_at?: string
+          ended_at?: string | null
+          id?: string
+          scheduled_count?: number
+          sent_count?: number
+          started_at?: string | null
+          status?: string | null
+        }
+        Relationships: []
+      }
+      broadcast_contact: {
+        Row: {
+          batch_id: string
+          broadcast_id: string
+          contact_id: number
+          created_at: string
+          delivered_at: string | null
+          failed_at: string | null
+          id: string
+          processed_at: string | null
+          read_at: string | null
+          replied_at: string | null
+          reply_counted: boolean
+          sent_at: string | null
+          wam_id: string | null
+        }
+        Insert: {
+          batch_id: string
+          broadcast_id: string
+          contact_id: number
+          created_at?: string
+          delivered_at?: string | null
+          failed_at?: string | null
+          id?: string
+          processed_at?: string | null
+          read_at?: string | null
+          replied_at?: string | null
+          reply_counted?: boolean
+          sent_at?: string | null
+          wam_id?: string | null
+        }
+        Update: {
+          batch_id?: string
+          broadcast_id?: string
+          contact_id?: number
+          created_at?: string
+          delivered_at?: string | null
+          failed_at?: string | null
+          id?: string
+          processed_at?: string | null
+          read_at?: string | null
+          replied_at?: string | null
+          reply_counted?: boolean
+          sent_at?: string | null
+          wam_id?: string | null
+        }
+        Relationships: []
+      }
+      contact_tag: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+        }
+        Relationships: []
+      }
       contacts: {
         Row: {
+          assigned_to: string | null
           created_at: string
           display_name: string | null
           id: string
+          in_chat: boolean
+          last_message_received_at: string | null
           phone_e164: string
+          tags: string[] | null
           tenant_id: string
+          unread_count: number | null
           updated_at: string
           wa_id: string | null
         }
         Insert: {
+          assigned_to?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
+          in_chat?: boolean
+          last_message_received_at?: string | null
           phone_e164: string
+          tags?: string[] | null
           tenant_id: string
+          unread_count?: number | null
           updated_at?: string
           wa_id?: string | null
         }
         Update: {
+          assigned_to?: string | null
           created_at?: string
           display_name?: string | null
           id?: string
+          in_chat?: boolean
+          last_message_received_at?: string | null
           phone_e164?: string
+          tags?: string[] | null
           tenant_id?: string
+          unread_count?: number | null
           updated_at?: string
           wa_id?: string | null
         }
@@ -462,36 +624,93 @@ export type Database = {
           },
         ]
       }
+      message_template: {
+        Row: {
+          category: string
+          components: Json
+          created_at: string
+          id: string
+          language: string
+          name: string
+          previous_category: string | null
+          status: string | null
+          updated_at: string
+        }
+        Insert: {
+          category: string
+          components: Json
+          created_at?: string
+          id: string
+          language: string
+          name: string
+          previous_category?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Update: {
+          category?: string
+          components?: Json
+          created_at?: string
+          id?: string
+          language?: string
+          name?: string
+          previous_category?: string | null
+          status?: string | null
+          updated_at?: string
+        }
+        Relationships: []
+      }
       messages: {
         Row: {
+          chat_id: string | null
           conversation_id: string
           created_at: string
+          delivered_at: string | null
           direction: Database["public"]["Enums"]["msg_direction"]
+          failed_at: string | null
           id: string
+          is_received: boolean
           meta: Json
           provider_message_id: string | null
+          read_at: string | null
+          read_by_user_at: string | null
+          sent_at: string | null
           status: Database["public"]["Enums"]["msg_status"]
           tenant_id: string
           text: string | null
         }
         Insert: {
+          chat_id?: string | null
           conversation_id: string
           created_at?: string
+          delivered_at?: string | null
           direction: Database["public"]["Enums"]["msg_direction"]
+          failed_at?: string | null
           id?: string
+          is_received?: boolean
           meta?: Json
           provider_message_id?: string | null
+          read_at?: string | null
+          read_by_user_at?: string | null
+          sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           tenant_id: string
           text?: string | null
         }
         Update: {
+          chat_id?: string | null
           conversation_id?: string
           created_at?: string
+          delivered_at?: string | null
           direction?: Database["public"]["Enums"]["msg_direction"]
+          failed_at?: string | null
           id?: string
+          is_received?: boolean
           meta?: Json
           provider_message_id?: string | null
+          read_at?: string | null
+          read_by_user_at?: string | null
+          sent_at?: string | null
           status?: Database["public"]["Enums"]["msg_status"]
           tenant_id?: string
           text?: string | null
@@ -518,19 +737,70 @@ export type Database = {
           created_at: string
           email: string | null
           id: string
+          last_updated: string | null
           name: string | null
         }
         Insert: {
           created_at?: string
           email?: string | null
           id: string
+          last_updated?: string | null
           name?: string | null
         }
         Update: {
           created_at?: string
           email?: string | null
           id?: string
+          last_updated?: string | null
           name?: string | null
+        }
+        Relationships: []
+      }
+      role_permissions: {
+        Row: {
+          id: number
+          permission: Database["public"]["Enums"]["app_permission"]
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Insert: {
+          id?: number
+          permission: Database["public"]["Enums"]["app_permission"]
+          role: Database["public"]["Enums"]["app_role"]
+        }
+        Update: {
+          id?: number
+          permission?: Database["public"]["Enums"]["app_permission"]
+          role?: Database["public"]["Enums"]["app_role"]
+        }
+        Relationships: []
+      }
+      setup: {
+        Row: {
+          created_at: string | null
+          display_text: string
+          done_at: string | null
+          id: string
+          in_progress: boolean
+          name: string | null
+          sequence: number | null
+        }
+        Insert: {
+          created_at?: string | null
+          display_text: string
+          done_at?: string | null
+          id?: string
+          in_progress?: boolean
+          name?: string | null
+          sequence?: number | null
+        }
+        Update: {
+          created_at?: string | null
+          display_text?: string
+          done_at?: string | null
+          id?: string
+          in_progress?: boolean
+          name?: string | null
+          sequence?: number | null
         }
         Relationships: []
       }
@@ -641,6 +911,24 @@ export type Database = {
           created_at?: string
           id?: string
           name?: string
+        }
+        Relationships: []
+      }
+      user_roles: {
+        Row: {
+          id: number
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Insert: {
+          id?: number
+          role: Database["public"]["Enums"]["app_role"]
+          user_id: string
+        }
+        Update: {
+          id?: number
+          role?: Database["public"]["Enums"]["app_role"]
+          user_id?: string
         }
         Relationships: []
       }
@@ -907,6 +1195,37 @@ export type Database = {
       [_ in never]: never
     }
     Functions: {
+      add_delivered_count_to_broadcast: {
+        Args: { b_id: string; delivered_count_to_be_added: number }
+        Returns: undefined
+      }
+      add_failed_count_to_broadcast: {
+        Args: { b_id: string; failed_count_to_be_added: number }
+        Returns: undefined
+      }
+      add_processed_count_to_broadcast: {
+        Args: { b_id: string; processed_count_to_be_added: number }
+        Returns: undefined
+      }
+      add_read_count_to_broadcast: {
+        Args: { b_id: string; read_count_to_be_added: number }
+        Returns: undefined
+      }
+      add_replied_to_broadcast_contact: {
+        Args: { b_id: string; replied_count_to_be_added: number }
+        Returns: undefined
+      }
+      add_sent_count_to_broadcast: {
+        Args: { b_id: string; sent_count_to_be_added: number }
+        Returns: undefined
+      }
+      authorize: {
+        Args: {
+          requested_permission: Database["public"]["Enums"]["app_permission"]
+        }
+        Returns: boolean
+      }
+      custom_access_token_hook: { Args: { event: Json }; Returns: Json }
       has_tenant_role: {
         Args: {
           _min_role: Database["public"]["Enums"]["member_role"]
@@ -915,8 +1234,31 @@ export type Database = {
         Returns: boolean
       }
       is_tenant_member: { Args: { _tenant_id: string }; Returns: boolean }
+      pick_next_broadcast_batch: { Args: { b_id: string }; Returns: string }
+      update_message_delivered_status: {
+        Args: { delivered_at_in: string; wam_id_in: string }
+        Returns: boolean
+      }
+      update_message_failed_status: {
+        Args: { failed_at_in: string; wam_id_in: string }
+        Returns: boolean
+      }
+      update_message_read_status: {
+        Args: { read_at_in: string; wam_id_in: string }
+        Returns: boolean
+      }
+      update_message_sent_status: {
+        Args: { sent_at_in: string; wam_id_in: string }
+        Returns: boolean
+      }
     }
     Enums: {
+      app_permission:
+        | "contact.read"
+        | "contact.write"
+        | "chat.read"
+        | "chat.write"
+      app_role: "admin" | "agent"
       conv_status: "open" | "pending" | "closed"
       job_type:
         | "WEBHOOK_DELIVERY"
@@ -1059,6 +1401,13 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
+      app_permission: [
+        "contact.read",
+        "contact.write",
+        "chat.read",
+        "chat.write",
+      ],
+      app_role: ["admin", "agent"],
       conv_status: ["open", "pending", "closed"],
       job_type: [
         "WEBHOOK_DELIVERY",
