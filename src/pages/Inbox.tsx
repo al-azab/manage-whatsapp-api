@@ -284,12 +284,12 @@ const InboxPage = () => {
                             ? "bg-card border border-border rounded-br-sm"
                             : "bg-primary text-primary-foreground rounded-bl-sm"
                         }`}>
-                          {mediaMeta?.url && (
+                          {mediaMeta && (mediaMeta.url || mediaMeta.storage_key || mediaMeta.media_file_id || mediaMeta.id) && (
                             <div className="mb-1.5">
                               <ChatMediaBubble media={mediaMeta} isOutbound={isOutbound} />
                             </div>
                           )}
-                          {msg.text && !(mediaMeta?.url && msg.text === `[${mediaMeta.type}]`) && (
+                          {msg.text && !(mediaMeta && msg.text === `[${mediaMeta.type}]`) && (
                             <p className="text-sm">{msg.text}</p>
                           )}
                           <p className={`text-[10px] mt-1 ${isOutbound ? "text-muted-foreground" : "text-primary-foreground/70"}`}>

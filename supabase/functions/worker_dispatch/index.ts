@@ -267,6 +267,10 @@ async function processMedia(supabase: any, job: any) {
     }
   }
 
+  // Determine final storage location
+  const finalStorageKey = seafilePath || storageKey;
+  const finalBucket = seafilePath ? "seafile" : "wa-media";
+
   // Update media_files record
   const { data: existingMedia } = await supabase
     .from("media_files")
@@ -280,13 +284,44 @@ async function processMedia(supabase: any, job: any) {
     await supabase
       .from("media_files")
       .update({
-        storage_key: seafilePath || storageKey,
-        storage_bucket: seafilePath ? "seafile" : "wa-media",
+        storage_key: finalStorageKey,
+        storage_bucket: finalBucket,
         mime: mediaInfo.mime_type,
         size_bytes: mediaBytes.length,
         sha256,
       })
       .eq("id", existingMedia.id);
+  }
+
+  // Update message meta with storage info so frontend can resolve the URL
+  const mediaType = (mediaInfo.mime_type || "").startsWith("image/") ? "image"
+    : (mediaInfo.mime_type || "").startsWith("video/") ? "video"
+    : (mediaInfo.mime_type || "").startsWith("audio/") ? "audio"
+    : "document";
+
+  const { data: currentMsg } = await supabase
+    .from("messages")
+    .select("meta")
+    .eq("id", message_id)
+    .single();
+
+  if (currentMsg) {
+    const updatedMeta = {
+      ...(currentMsg.meta || {}),
+      media: {
+        ...(currentMsg.meta?.media || {}),
+        storage_key: storageKey,
+        storage_bucket: "wa-media",
+        mime: mediaInfo.mime_type,
+        type: mediaType,
+        media_file_id: existingMedia?.id || null,
+      },
+    };
+
+    await supabase
+      .from("messages")
+      .update({ meta: updatedMeta })
+      .eq("id", message_id);
   }
 }
 
