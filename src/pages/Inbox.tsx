@@ -298,9 +298,12 @@ const InboxPage = () => {
                           {msg.text && !(mediaMeta && msg.text === `[${mediaMeta.type}]`) && (
                             <p className="text-sm">{msg.text}</p>
                           )}
-                          <p className={`text-[10px] mt-1 ${isOutbound ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
-                            {new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
-                          </p>
+                          <div className={`flex items-center gap-0.5 mt-1 ${isOutbound ? "justify-start" : "justify-end"}`}>
+                            <span className={`text-[10px] ${isOutbound ? "text-muted-foreground" : "text-primary-foreground/70"}`}>
+                              {new Date(msg.created_at).toLocaleTimeString("ar", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                            <MessageStatus status={msg.status} isOutbound={isOutbound} />
+                          </div>
                         </div>
                       </div>
                     );
