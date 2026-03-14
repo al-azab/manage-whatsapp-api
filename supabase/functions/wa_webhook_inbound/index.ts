@@ -187,12 +187,64 @@ Deno.serve(async (req) => {
 
           const affectedTenants = new Set<string>();
 
+          // Process status updates first, so we can infer the right tenant when phone_number_id is duplicated
+          for (const status of value.statuses || []) {
+            const statusMap: Record<string, string> = {
+              sent: "sent",
+              delivered: "delivered",
+              read: "read",
+              failed: "failed",
+            };
+
+            const mappedStatus = statusMap[status.status];
+            if (!mappedStatus || !status.id) continue;
+
+            const statusTimestamp = toIsoFromWaTimestamp(status.timestamp);
+            const statusPatch: Record<string, string> = { status: mappedStatus };
+
+            if (mappedStatus === "sent") statusPatch.sent_at = statusTimestamp;
+            if (mappedStatus === "delivered") statusPatch.delivered_at = statusTimestamp;
+            if (mappedStatus === "read") statusPatch.read_at = statusTimestamp;
+            if (mappedStatus === "failed") statusPatch.failed_at = statusTimestamp;
+
+            const { data: updatedRows, error: updateErr } = await supabase
+              .from("messages")
+              .update(statusPatch)
+              .eq("provider_message_id", status.id)
+              .select("tenant_id");
+
+            if (updateErr) {
+              console.error("Status update failed:", updateErr);
+              continue;
+            }
+
+            for (const row of updatedRows || []) {
+              if (row?.tenant_id && UUID_REGEX.test(row.tenant_id)) {
+                affectedTenants.add(row.tenant_id);
+              }
+            }
+
+            if ((!updatedRows || updatedRows.length === 0) && waNumbers.length === 1) {
+              affectedTenants.add(waNumbers[0].tenant_id);
+            }
+          }
+
+          const preferredTenantId = affectedTenants.size === 1
+            ? Array.from(affectedTenants)[0]
+            : undefined;
+
           // Process inbound messages
           for (const msg of value.messages || []) {
             const senderPhone = msg.from;
             if (!senderPhone) continue;
 
-            const selectedWaNumber = await pickWaNumberForSender(supabase, waNumbers, senderPhone);
+            const selectedWaNumber = await pickWaNumberForSender(
+              supabase,
+              waNumbers,
+              senderPhone,
+              preferredTenantId,
+            );
+
             const tenantId = selectedWaNumber.tenant_id;
             affectedTenants.add(tenantId);
 
@@ -312,48 +364,6 @@ Deno.serve(async (req) => {
                   mime_type: mediaInfo?.mime_type,
                 },
               });
-            }
-          }
-
-          // Process status updates
-          for (const status of value.statuses || []) {
-            const statusMap: Record<string, string> = {
-              sent: "sent",
-              delivered: "delivered",
-              read: "read",
-              failed: "failed",
-            };
-
-            const mappedStatus = statusMap[status.status];
-            if (!mappedStatus || !status.id) continue;
-
-            const statusTimestamp = toIsoFromWaTimestamp(status.timestamp);
-            const statusPatch: Record<string, string> = { status: mappedStatus };
-
-            if (mappedStatus === "sent") statusPatch.sent_at = statusTimestamp;
-            if (mappedStatus === "delivered") statusPatch.delivered_at = statusTimestamp;
-            if (mappedStatus === "read") statusPatch.read_at = statusTimestamp;
-            if (mappedStatus === "failed") statusPatch.failed_at = statusTimestamp;
-
-            const { data: updatedRows, error: updateErr } = await supabase
-              .from("messages")
-              .update(statusPatch)
-              .eq("provider_message_id", status.id)
-              .select("tenant_id");
-
-            if (updateErr) {
-              console.error("Status update failed:", updateErr);
-              continue;
-            }
-
-            for (const row of updatedRows || []) {
-              if (row?.tenant_id && UUID_REGEX.test(row.tenant_id)) {
-                affectedTenants.add(row.tenant_id);
-              }
-            }
-
-            if ((!updatedRows || updatedRows.length === 0) && waNumbers.length === 1) {
-              affectedTenants.add(waNumbers[0].tenant_id);
             }
           }
 
