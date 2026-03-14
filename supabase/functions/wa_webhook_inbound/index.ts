@@ -6,6 +6,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -13,9 +16,16 @@ function json(body: unknown, status = 200) {
   });
 }
 
+function toIsoFromWaTimestamp(ts?: string): string {
+  const asNumber = ts ? Number(ts) : NaN;
+  if (!Number.isFinite(asNumber) || asNumber <= 0) return new Date().toISOString();
+  return new Date(asNumber * 1000).toISOString();
+}
+
 async function verifySignature(body: string, signature: string | null): Promise<boolean> {
   const appSecret = Deno.env.get("WA_APP_SECRET");
   if (!appSecret || !signature) return true; // skip if no secret configured
+
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(appSecret),
@@ -23,13 +33,82 @@ async function verifySignature(body: string, signature: string | null): Promise<
     false,
     ["sign"],
   );
+
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
   const expected =
     "sha256=" +
     Array.from(new Uint8Array(sig))
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
+
   return signature === expected;
+}
+
+async function pickWaNumberForSender(
+  supabase: any,
+  waNumbers: Array<{ id: string; tenant_id: string; created_at?: string }>,
+  senderPhone: string,
+  preferredTenantId?: string,
+) {
+  if (waNumbers.length === 1) return waNumbers[0];
+
+  if (preferredTenantId) {
+    const preferred = waNumbers.find((w) => w.tenant_id === preferredTenantId);
+    if (preferred) return preferred;
+  }
+
+  const phoneCandidates = [senderPhone, `+${senderPhone}`];
+  let bestCandidate: { id: string; tenant_id: string; created_at?: string } | null = null;
+  let bestScore = -1;
+
+  for (const candidate of waNumbers) {
+    const { data: contact } = await supabase
+      .from("contacts")
+      .select("id")
+      .eq("tenant_id", candidate.tenant_id)
+      .in("phone_e164", phoneCandidates)
+      .limit(1)
+      .maybeSingle();
+
+    if (!contact) continue;
+
+    const { data: conversation } = await supabase
+      .from("conversations")
+      .select("id, last_message_at")
+      .eq("tenant_id", candidate.tenant_id)
+      .eq("wa_number_id", candidate.id)
+      .eq("contact_id", contact.id)
+      .eq("status", "open")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+
+    let score = 5; // contact match
+
+    if (conversation) {
+      score += 10; // conversation match
+
+      const { data: outboundMessage } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("tenant_id", candidate.tenant_id)
+        .eq("conversation_id", conversation.id)
+        .eq("direction", "outbound")
+        .limit(1)
+        .maybeSingle();
+
+      if (outboundMessage) {
+        score += 100; // strongest signal: we have outbound history on this tenant/number/contact
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = candidate;
+    }
+  }
+
+  return bestCandidate || waNumbers[0];
 }
 
 Deno.serve(async (req) => {
@@ -61,6 +140,7 @@ Deno.serve(async (req) => {
     const signature = req.headers.get("X-Hub-Signature-256");
     const valid = await verifySignature(bodyText, signature);
     if (!valid) {
+      console.warn("Invalid webhook signature for wa_webhook_inbound");
       return new Response("Invalid signature", { status: 403 });
     }
 
@@ -74,30 +154,117 @@ Deno.serve(async (req) => {
       for (const entry of payload.entry || []) {
         for (const change of entry.changes || []) {
           if (change.field !== "messages") continue;
+
           const value = change.value;
           const phoneNumberId = value.metadata?.phone_number_id;
 
-          // Find the wa_number
-          const { data: waNumber } = await supabase
-            .from("wa_numbers")
-            .select("id, tenant_id")
-            .eq("phone_number_id", phoneNumberId)
-            .maybeSingle();
-
-          if (!waNumber) {
-            console.log(`Unknown phone_number_id: ${phoneNumberId}`);
+          if (!phoneNumberId) {
+            console.warn("Webhook event without metadata.phone_number_id");
             continue;
           }
 
-          const tenantId = waNumber.tenant_id;
+          const { data: waNumbers, error: waNumErr } = await supabase
+            .from("wa_numbers")
+            .select("id, tenant_id, created_at")
+            .eq("phone_number_id", phoneNumberId)
+            .order("created_at", { ascending: false });
+
+          if (waNumErr) {
+            console.error("wa_numbers lookup error:", waNumErr);
+            continue;
+          }
+
+          if (!waNumbers?.length) {
+            console.warn(`Unknown phone_number_id: ${phoneNumberId}`);
+            continue;
+          }
+
+          if (waNumbers.length > 1) {
+            console.warn(
+              `Multiple wa_numbers found for phone_number_id=${phoneNumberId}; resolving by conversation/sender` as string,
+            );
+          }
+
+          const affectedTenants = new Set<string>();
+
+          // Process status updates first, so we can infer the right tenant when phone_number_id is duplicated
+          for (const status of value.statuses || []) {
+            const statusMap: Record<string, string> = {
+              sent: "sent",
+              delivered: "delivered",
+              read: "read",
+              failed: "failed",
+            };
+
+            const mappedStatus = statusMap[status.status];
+            if (!mappedStatus || !status.id) continue;
+
+            const statusTimestamp = toIsoFromWaTimestamp(status.timestamp);
+            const statusPatch: Record<string, string> = { status: mappedStatus };
+
+            if (mappedStatus === "sent") statusPatch.sent_at = statusTimestamp;
+            if (mappedStatus === "delivered") statusPatch.delivered_at = statusTimestamp;
+            if (mappedStatus === "read") statusPatch.read_at = statusTimestamp;
+            if (mappedStatus === "failed") statusPatch.failed_at = statusTimestamp;
+
+            const { data: updatedRows, error: updateErr } = await supabase
+              .from("messages")
+              .update(statusPatch)
+              .eq("provider_message_id", status.id)
+              .select("tenant_id");
+
+            if (updateErr) {
+              console.error("Status update failed:", updateErr);
+              continue;
+            }
+
+            for (const row of updatedRows || []) {
+              if (row?.tenant_id && UUID_REGEX.test(row.tenant_id)) {
+                affectedTenants.add(row.tenant_id);
+              }
+            }
+
+            if ((!updatedRows || updatedRows.length === 0) && waNumbers.length === 1) {
+              affectedTenants.add(waNumbers[0].tenant_id);
+            }
+          }
+
+          const preferredTenantId = affectedTenants.size === 1
+            ? Array.from(affectedTenants)[0]
+            : undefined;
 
           // Process inbound messages
           for (const msg of value.messages || []) {
             const senderPhone = msg.from;
+            if (!senderPhone) continue;
+
+            const selectedWaNumber = await pickWaNumberForSender(
+              supabase,
+              waNumbers,
+              senderPhone,
+              preferredTenantId,
+            );
+
+            const tenantId = selectedWaNumber.tenant_id;
+            affectedTenants.add(tenantId);
+
             const contactProfile = value.contacts?.[0]?.profile?.name || senderPhone;
 
+            // Idempotency for webhook retries
+            if (msg.id) {
+              const { data: existingInbound } = await supabase
+                .from("messages")
+                .select("id")
+                .eq("provider_message_id", msg.id)
+                .maybeSingle();
+
+              if (existingInbound) {
+                continue;
+              }
+            }
+
             // Upsert contact
-            const { data: contact } = await supabase
+            const { data: contact, error: contactErr } = await supabase
               .from("contacts")
               .upsert(
                 {
@@ -111,29 +278,38 @@ Deno.serve(async (req) => {
               .select("id")
               .single();
 
-            if (!contact) continue;
+            if (contactErr || !contact) {
+              console.error("Contact upsert failed:", contactErr);
+              continue;
+            }
 
-            // Upsert conversation
+            // Upsert/open conversation
             let { data: conversation } = await supabase
               .from("conversations")
               .select("id")
               .eq("tenant_id", tenantId)
-              .eq("wa_number_id", waNumber.id)
+              .eq("wa_number_id", selectedWaNumber.id)
               .eq("contact_id", contact.id)
               .eq("status", "open")
               .maybeSingle();
 
             if (!conversation) {
-              const { data: newConv } = await supabase
+              const { data: newConv, error: convErr } = await supabase
                 .from("conversations")
                 .insert({
                   tenant_id: tenantId,
-                  wa_number_id: waNumber.id,
+                  wa_number_id: selectedWaNumber.id,
                   contact_id: contact.id,
                   status: "open",
                 })
                 .select("id")
                 .single();
+
+              if (convErr) {
+                console.error("Conversation insert failed:", convErr);
+                continue;
+              }
+
               conversation = newConv;
             }
 
@@ -143,8 +319,8 @@ Deno.serve(async (req) => {
             const msgText = msg.text?.body || null;
             const hasMedia = ["image", "video", "audio", "document", "sticker"].includes(msg.type);
 
-            // Insert message
-            const { data: insertedMsg } = await supabase
+            // Insert inbound message
+            const { data: insertedMsg, error: msgErr } = await supabase
               .from("messages")
               .insert({
                 tenant_id: tenantId,
@@ -161,15 +337,21 @@ Deno.serve(async (req) => {
               .select("id")
               .single();
 
+            if (msgErr || !insertedMsg) {
+              console.error("Inbound message insert failed:", msgErr);
+              continue;
+            }
+
             // If media, enqueue processing
-            if (hasMedia && insertedMsg) {
+            if (hasMedia) {
               const mediaInfo = msg[msg.type];
+
               await supabase.from("media_files").insert({
                 tenant_id: tenantId,
                 message_id: insertedMsg.id,
                 kind: msg.type === "sticker" ? "sticker" : msg.type,
                 mime: mediaInfo?.mime_type || null,
-                storage_key: null, // will be set by worker
+                storage_key: null,
               });
 
               await supabase.from("job_queue").insert({
@@ -185,40 +367,29 @@ Deno.serve(async (req) => {
             }
           }
 
-          // Process status updates
-          for (const status of value.statuses || []) {
-            const statusMap: Record<string, string> = {
-              sent: "sent",
-              delivered: "delivered",
-              read: "read",
-              failed: "failed",
-            };
-            const mappedStatus = statusMap[status.status];
-            if (mappedStatus && status.id) {
-              await supabase
-                .from("messages")
-                .update({ status: mappedStatus })
-                .eq("provider_message_id", status.id);
-            }
+          // Enqueue webhook deliveries to customer endpoints for affected tenants
+          if (affectedTenants.size === 0 && waNumbers.length === 1) {
+            affectedTenants.add(waNumbers[0].tenant_id);
           }
 
-          // Enqueue webhook deliveries to customer endpoints
-          const { data: endpoints } = await supabase
-            .from("webhook_endpoints")
-            .select("id")
-            .eq("tenant_id", tenantId)
-            .eq("is_enabled", true);
+          for (const tenantId of affectedTenants) {
+            const { data: endpoints } = await supabase
+              .from("webhook_endpoints")
+              .select("id")
+              .eq("tenant_id", tenantId)
+              .eq("is_enabled", true);
 
-          for (const ep of endpoints || []) {
-            await supabase.from("job_queue").insert({
-              tenant_id: tenantId,
-              job_type: "WEBHOOK_DELIVERY",
-              payload: {
-                webhook_endpoint_id: ep.id,
-                event_type: "whatsapp.event",
-                payload: value,
-              },
-            });
+            for (const ep of endpoints || []) {
+              await supabase.from("job_queue").insert({
+                tenant_id: tenantId,
+                job_type: "WEBHOOK_DELIVERY",
+                payload: {
+                  webhook_endpoint_id: ep.id,
+                  event_type: "whatsapp.event",
+                  payload: value,
+                },
+              });
+            }
           }
         }
       }
