@@ -48,10 +48,18 @@ async function pickWaNumberForSender(
   supabase: any,
   waNumbers: Array<{ id: string; tenant_id: string; created_at?: string }>,
   senderPhone: string,
+  preferredTenantId?: string,
 ) {
   if (waNumbers.length === 1) return waNumbers[0];
 
+  if (preferredTenantId) {
+    const preferred = waNumbers.find((w) => w.tenant_id === preferredTenantId);
+    if (preferred) return preferred;
+  }
+
   const phoneCandidates = [senderPhone, `+${senderPhone}`];
+  let bestCandidate: { id: string; tenant_id: string; created_at?: string } | null = null;
+  let bestScore = -1;
 
   for (const candidate of waNumbers) {
     const { data: contact } = await supabase
@@ -64,22 +72,43 @@ async function pickWaNumberForSender(
 
     if (!contact) continue;
 
-    const { data: existingConversation } = await supabase
+    const { data: conversation } = await supabase
       .from("conversations")
-      .select("id")
+      .select("id, last_message_at")
       .eq("tenant_id", candidate.tenant_id)
       .eq("wa_number_id", candidate.id)
       .eq("contact_id", contact.id)
       .eq("status", "open")
+      .order("last_message_at", { ascending: false, nullsFirst: false })
       .limit(1)
       .maybeSingle();
 
-    if (existingConversation) {
-      return candidate;
+    let score = 5; // contact match
+
+    if (conversation) {
+      score += 10; // conversation match
+
+      const { data: outboundMessage } = await supabase
+        .from("messages")
+        .select("id")
+        .eq("tenant_id", candidate.tenant_id)
+        .eq("conversation_id", conversation.id)
+        .eq("direction", "outbound")
+        .limit(1)
+        .maybeSingle();
+
+      if (outboundMessage) {
+        score += 100; // strongest signal: we have outbound history on this tenant/number/contact
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestCandidate = candidate;
     }
   }
 
-  return waNumbers[0];
+  return bestCandidate || waNumbers[0];
 }
 
 Deno.serve(async (req) => {
