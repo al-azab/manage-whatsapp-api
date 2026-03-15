@@ -174,6 +174,8 @@ const InboxPage = () => {
       payload.media_url = pendingFile.url;
       payload.media_mime = pendingFile.mime;
       payload.media_filename = pendingFile.filename;
+      payload.media_storage_key = pendingFile.storageKey;
+      payload.media_storage_bucket = pendingFile.storageBucket;
       if (newMsg.trim()) payload.caption = newMsg;
     } else {
       payload.text = newMsg;
