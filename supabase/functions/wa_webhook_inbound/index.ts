@@ -412,18 +412,31 @@ Deno.serve(async (req) => {
       console.error("Webhook processing error:", err);
     }
 
-    // Trigger worker_dispatch to process queued jobs (fire-and-forget)
+    // Trigger worker_dispatch to process queued jobs
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      fetch(`${supabaseUrl}/functions/v1/worker_dispatch`, {
+
+      const dispatchPromise = fetch(`${supabaseUrl}/functions/v1/worker_dispatch`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceKey}`,
+          apikey: serviceKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({}),
-      }).catch((e) => console.error("worker_dispatch trigger failed:", e));
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text();
+          console.error("worker_dispatch trigger failed:", res.status, body);
+        }
+      });
+
+      if ((globalThis as any).EdgeRuntime?.waitUntil) {
+        (globalThis as any).EdgeRuntime.waitUntil(dispatchPromise);
+      } else {
+        await dispatchPromise;
+      }
     } catch (triggerErr) {
       console.error("Failed to trigger worker_dispatch:", triggerErr);
     }

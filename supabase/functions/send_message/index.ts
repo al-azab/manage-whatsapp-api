@@ -152,11 +152,17 @@ Deno.serve(async (req) => {
     const meta: Record<string, unknown> = {};
     if (template) meta.template = template;
     if (media_url) {
+      const parsedStorageRef = extractStorageRefFromSignedUrl(media_url);
+      const resolvedStorageKey = media_storage_key || parsedStorageRef?.storage_key || null;
+      const resolvedStorageBucket = media_storage_bucket || parsedStorageRef?.bucket || null;
+
       meta.media = {
         url: media_url,
         mime: media_mime,
         filename: media_filename || null,
         type: media_mime ? mimeToWaType(media_mime) : null,
+        storage_key: resolvedStorageKey,
+        storage_bucket: resolvedStorageBucket,
       };
     }
 

@@ -24,22 +24,39 @@ export function useMediaUrl(media: {
   useEffect(() => {
     if (!media) {
       setResolvedUrl(null);
+      setLoading(false);
       return;
     }
 
-    // If there's already a direct HTTP URL, use it
-    if (media.url && media.url.startsWith("http")) {
-      setResolvedUrl(media.url);
-      return;
-    }
+    let cancelled = false;
 
-    // If there's a storage_key, resolve via signed URL
-    if (media.storage_key && media.storage_bucket === "wa-media") {
+    const parseSignedStorageRef = (url?: string | null) => {
+      if (!url) return null;
+      try {
+        const parsed = new URL(url);
+        const match = parsed.pathname.match(/\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/);
+        if (!match) return null;
+        return {
+          storage_bucket: decodeURIComponent(match[1]),
+          storage_key: decodeURIComponent(match[2]),
+        };
+      } catch {
+        return null;
+      }
+    };
+
+    const resolvedFromUrl = parseSignedStorageRef(media.url);
+    const resolvedBucket = media.storage_bucket || resolvedFromUrl?.storage_bucket;
+    const resolvedStorageKey = media.storage_key || resolvedFromUrl?.storage_key;
+
+    // Prefer fresh signed URLs for private wa-media files to avoid expired links
+    if (resolvedStorageKey && resolvedBucket === "wa-media") {
       setLoading(true);
       supabase.storage
         .from("wa-media")
-        .createSignedUrl(media.storage_key, 300)
+        .createSignedUrl(resolvedStorageKey, 300)
         .then(({ data, error }) => {
+          if (cancelled) return;
           if (data?.signedUrl) {
             setResolvedUrl(data.signedUrl);
           } else {
@@ -48,7 +65,9 @@ export function useMediaUrl(media: {
           }
           setLoading(false);
         });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
     // If there's a media_file_id, resolve via edge function
@@ -59,6 +78,7 @@ export function useMediaUrl(media: {
           body: { tenant_id: tenantId, media_id: media.media_file_id },
         })
         .then(({ data, error }) => {
+          if (cancelled) return;
           if (data?.url) {
             setResolvedUrl(data.url);
           } else {
@@ -67,12 +87,22 @@ export function useMediaUrl(media: {
           }
           setLoading(false);
         });
-      return;
+      return () => {
+        cancelled = true;
+      };
     }
 
-    // No resolvable media
-    setResolvedUrl(null);
-  }, [media?.url, media?.storage_key, media?.media_file_id, tenantId]);
+    if (media.url && media.url.startsWith("http")) {
+      setResolvedUrl(media.url);
+    } else {
+      setResolvedUrl(null);
+    }
+    setLoading(false);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [media?.url, media?.storage_key, media?.storage_bucket, media?.media_file_id, tenantId]);
 
   return { url: resolvedUrl, loading };
 }
