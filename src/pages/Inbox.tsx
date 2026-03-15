@@ -37,7 +37,13 @@ const InboxPage = () => {
   const [newMsg, setNewMsg] = useState("");
   const [sending, setSending] = useState(false);
   const [search, setSearch] = useState("");
-  const [pendingFile, setPendingFile] = useState<{ url: string; mime: string; filename: string } | null>(null);
+  const [pendingFile, setPendingFile] = useState<{
+    url: string;
+    mime: string;
+    filename: string;
+    storageKey: string;
+    storageBucket: string;
+  } | null>(null);
   const { toast } = useToast();
 
   // New conversation dialog
@@ -168,6 +174,8 @@ const InboxPage = () => {
       payload.media_url = pendingFile.url;
       payload.media_mime = pendingFile.mime;
       payload.media_filename = pendingFile.filename;
+      payload.media_storage_key = pendingFile.storageKey;
+      payload.media_storage_bucket = pendingFile.storageBucket;
       if (newMsg.trim()) payload.caption = newMsg;
     } else {
       payload.text = newMsg;

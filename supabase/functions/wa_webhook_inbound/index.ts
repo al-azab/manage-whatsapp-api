@@ -22,9 +22,18 @@ function toIsoFromWaTimestamp(ts?: string): string {
   return new Date(asNumber * 1000).toISOString();
 }
 
-async function verifySignature(body: string, signature: string | null): Promise<boolean> {
+function parseSignatureHeader(rawHeader: string | null): string | null {
+  if (!rawHeader) return null;
+  const parts = rawHeader.split(",").map((v) => v.trim());
+  const signedPart = parts.find((part) => part.toLowerCase().startsWith("sha256="));
+  if (!signedPart) return null;
+  return signedPart.slice("sha256=".length).trim().toLowerCase();
+}
+
+async function verifySignature(body: string, rawSignatureHeader: string | null): Promise<boolean> {
   const appSecret = Deno.env.get("WA_APP_SECRET");
-  if (!appSecret || !signature) return true; // skip if no secret configured
+  const signature = parseSignatureHeader(rawSignatureHeader);
+  if (!appSecret || !signature) return true; // skip if no secret or no signature configured
 
   const key = await crypto.subtle.importKey(
     "raw",
@@ -35,13 +44,19 @@ async function verifySignature(body: string, signature: string | null): Promise<
   );
 
   const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(body));
-  const expected =
-    "sha256=" +
-    Array.from(new Uint8Array(sig))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
+  const expectedHex = Array.from(new Uint8Array(sig))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .toLowerCase();
 
-  return signature === expected;
+  if (expectedHex.length !== signature.length) return false;
+
+  let diff = 0;
+  for (let i = 0; i < expectedHex.length; i++) {
+    diff |= expectedHex.charCodeAt(i) ^ signature.charCodeAt(i);
+  }
+
+  return diff === 0;
 }
 
 async function pickWaNumberForSender(
@@ -397,18 +412,31 @@ Deno.serve(async (req) => {
       console.error("Webhook processing error:", err);
     }
 
-    // Trigger worker_dispatch to process queued jobs (fire-and-forget)
+    // Trigger worker_dispatch to process queued jobs
     try {
       const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
       const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-      fetch(`${supabaseUrl}/functions/v1/worker_dispatch`, {
+
+      const dispatchPromise = fetch(`${supabaseUrl}/functions/v1/worker_dispatch`, {
         method: "POST",
         headers: {
           Authorization: `Bearer ${serviceKey}`,
+          apikey: serviceKey,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({}),
-      }).catch((e) => console.error("worker_dispatch trigger failed:", e));
+      }).then(async (res) => {
+        if (!res.ok) {
+          const body = await res.text();
+          console.error("worker_dispatch trigger failed:", res.status, body);
+        }
+      });
+
+      if ((globalThis as any).EdgeRuntime?.waitUntil) {
+        (globalThis as any).EdgeRuntime.waitUntil(dispatchPromise);
+      } else {
+        await dispatchPromise;
+      }
     } catch (triggerErr) {
       console.error("Failed to trigger worker_dispatch:", triggerErr);
     }

@@ -20,6 +20,21 @@ function mimeToWaType(mime: string): string {
   return "document";
 }
 
+function extractStorageRefFromSignedUrl(url: string | null | undefined) {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const match = parsed.pathname.match(/\/storage\/v1\/object\/sign\/([^/]+)\/(.+)$/);
+    if (!match) return null;
+    return {
+      bucket: decodeURIComponent(match[1]),
+      storage_key: decodeURIComponent(match[2]),
+    };
+  } catch {
+    return null;
+  }
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
   if (req.method !== "POST") return json({ error: "Method not allowed" }, 405);
@@ -38,7 +53,18 @@ Deno.serve(async (req) => {
     if (authErr || !user) return json({ error: "Unauthorized" }, 401);
 
     const body = await req.json();
-    const { tenant_id, conversation_id, text, template, media_url, media_mime, media_filename, caption } = body;
+    const {
+      tenant_id,
+      conversation_id,
+      text,
+      template,
+      media_url,
+      media_mime,
+      media_filename,
+      media_storage_key,
+      media_storage_bucket,
+      caption,
+    } = body;
 
     if (!tenant_id || !conversation_id) {
       return json({ error: "tenant_id and conversation_id are required" }, 400);
@@ -126,11 +152,17 @@ Deno.serve(async (req) => {
     const meta: Record<string, unknown> = {};
     if (template) meta.template = template;
     if (media_url) {
+      const parsedStorageRef = extractStorageRefFromSignedUrl(media_url);
+      const resolvedStorageKey = media_storage_key || parsedStorageRef?.storage_key || null;
+      const resolvedStorageBucket = media_storage_bucket || parsedStorageRef?.bucket || null;
+
       meta.media = {
         url: media_url,
         mime: media_mime,
         filename: media_filename || null,
         type: media_mime ? mimeToWaType(media_mime) : null,
+        storage_key: resolvedStorageKey,
+        storage_bucket: resolvedStorageBucket,
       };
     }
 
