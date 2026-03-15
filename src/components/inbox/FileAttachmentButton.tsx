@@ -3,11 +3,19 @@ import { Paperclip, X, FileText, Loader2, Image as ImageIcon } from "lucide-reac
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
 
+interface PendingAttachment {
+  url: string;
+  mime: string;
+  filename: string;
+  storageKey: string;
+  storageBucket: string;
+}
+
 interface FileAttachmentButtonProps {
   tenantId: string;
-  onFileReady: (file: { url: string; mime: string; filename: string }) => void;
+  onFileReady: (file: PendingAttachment) => void;
   onClear: () => void;
-  pendingFile: { url: string; mime: string; filename: string } | null;
+  pendingFile: PendingAttachment | null;
 }
 
 const MAX_SIZE = 16 * 1024 * 1024; // 16MB WhatsApp limit
