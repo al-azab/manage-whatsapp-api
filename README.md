@@ -1,4 +1,4 @@
-# SouqChat — لوحة تحكم واتساب للأعمال
+# Manage WhatsApp Business API — لوحة تحكم واتساب للأعمال
 
 منصة متكاملة لإدارة WhatsApp Business عبر Supabase Edge Functions.
 
